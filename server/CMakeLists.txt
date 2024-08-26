@@ -24,7 +24,7 @@ if(NOT ${BUILD_UT})
             session.c config.c ext_tcp.c auth_none.c ext_tls.c
             auth_pam.c asd_target_interface.c asd_server_api.c
             logging.c)
-    target_link_libraries(asd ${JOURNALD_LIBRARIES} -lssl -lcrypto -lpam
+    target_link_libraries(asd ${JOURNALD_LIBRARIES} libssl.a libcrypto.a -lpam
                           asd_target ${SAFEC_LIBRARIES} ${SDBUS_LIBRARIES})
     install (TARGETS asd DESTINATION bin)
 
