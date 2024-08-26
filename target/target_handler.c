@@ -44,6 +44,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "gpio.h"
 #include "logging.h"
 
+#include <cjson/cJSON.h>
+
 #define JTAG_CLOCK_CYCLE_MILLISECONDS 1000
 #define GPIOD_CONSUMER_LABEL "ASD"
 #define GPIOD_DEV_ROOT_FOLDER "/dev/"
@@ -96,7 +98,7 @@ STATUS on_platform_reset_event(Target_Control_Handle* state, ASD_EVENT* event);
 STATUS on_prdy_event(Target_Control_Handle* state, ASD_EVENT* event);
 STATUS on_xdp_present_event(Target_Control_Handle* state, ASD_EVENT* event);
 STATUS initialize_gpiod(Target_Control_GPIO* gpio);
-STATUS platform_init(Target_Control_Handle* state);
+STATUS platform_init(Target_Control_Handle* state, const char *json_config);
 
 static const ASD_LogStream stream = ASD_LogStream_Pins;
 static const ASD_LogOption option = ASD_LogOption_None;
@@ -254,10 +256,12 @@ static STATUS write_dbus_reset(struct Target_Control_Handle * state, int gpio_in
     return result;
 }
 
-Target_Control_Handle* TargetHandler()
+Target_Control_Handle* TargetHandler(const char *json_config_file)
 {
     Target_Control_Handle* state =
         (Target_Control_Handle*)malloc(sizeof(Target_Control_Handle));
+    char *json_config = NULL;
+    FILE *f;
 
     if (state == NULL)
         return NULL;
@@ -391,7 +395,19 @@ Target_Control_Handle* TargetHandler()
     state->gpios[BMC_PWRGD3].edge = GPIO_EDGE_BOTH;
     state->gpios[BMC_PWRGD3].handler = on_power3_event;
 
-    platform_init(state);
+    if (json_config_file != NULL) {
+        f = fopen(json_config_file, "rb");
+        fseek(f, 0, SEEK_END);
+        long fsize = ftell(f);
+        fseek(f, 0, SEEK_SET);
+
+        json_config = malloc(fsize + 1);
+        if (json_config != NULL)
+            fread(json_config, fsize, 1, f);
+        fclose(f);
+    }
+
+    platform_init(state, json_config);
 
     /*******************************************************************************
         Initialize Read and Write handlers based on pin type
@@ -436,9 +452,11 @@ Target_Control_Handle* TargetHandler()
     state->is_controller_probe = false;
     // </MODIFY>
 
+    free (json_config);
     return state;
 }
 
+#ifdef ENABLE_DBUS
 STATUS platform_override_gpio(const Dbus_Handle* dbus, char* interface,
                               Target_Control_GPIO* gpio)
 {
@@ -522,14 +540,13 @@ STATUS platform_override_gpio(const Dbus_Handle* dbus, char* interface,
     return result;
 }
 
-STATUS platform_init(Target_Control_Handle* state)
+STATUS platform_init(Target_Control_Handle* state, const char *json_config)
 {
     STATUS result = ST_ERR;
     Dbus_Handle* dbus = dbus_helper();
     char interfaces[NUM_GPIOS][MAX_PLATFORM_PATH_SIZE];
 
-    // Read configuration from dbus
-    if (dbus)
+    if (dbus) // Read configuration from dbus
     {
         // Connect to the system bus
         int retcode = sd_bus_open_system(&dbus->bus);
@@ -583,6 +600,117 @@ STATUS platform_init(Target_Control_Handle* state)
     }
     return result;
 }
+#else
+STATUS platform_init(Target_Control_Handle* state, const char *json)
+{
+    STATUS result = ST_ERR;
+    const char *group;
+    const cJSON *gpios = NULL;
+    const cJSON *gpio = NULL;
+    const cJSON *property = NULL;
+
+    cJSON *config_json = cJSON_Parse(json);
+    if (config_json == NULL)
+    {
+        const char *error_ptr = cJSON_GetErrorPtr();
+        if (error_ptr != NULL)
+        {
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Error, stream, option,
+                    "JSON parsing failed: %s", error_ptr);
+#endif
+        }
+        goto end;
+    }
+    gpios = cJSON_GetObjectItemCaseSensitive(config_json, "gpio_config");
+
+    for (int i = 0; i < NUM_GPIOS; i++)
+    {
+        gpio = cJSON_GetObjectItemCaseSensitive(gpios, TARGET_CONTROL_GPIO_STRINGS[i]);
+        if (gpio == NULL)
+            continue;
+
+        property = cJSON_GetObjectItemCaseSensitive(gpio, "PinName");
+        if (cJSON_IsString(property) && (property->valuestring != NULL) && (strlen(property->valuestring) + 1) <= sizeof(state->gpios[i].name))
+        {
+            strncpy(&state->gpios[i].name, property->valuestring, sizeof(state->gpios[i].name));
+        }
+
+        property = cJSON_GetObjectItemCaseSensitive(gpio, "PinDirection");
+        if (cJSON_IsString(property) && (property->valuestring != NULL))
+        {
+            bool found = false;
+            for (int j = 0; j < sizeof(GPIO_DIRECTION_STRINGS) / sizeof(GPIO_DIRECTION_STRINGS[0]); j++)
+            {
+                if (strcmp(GPIO_DIRECTION_STRINGS[j], property->valuestring) == 0) {
+                    state->gpios[i].direction = j;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+#ifdef ENABLE_DEBUG_LOGGING
+                ASD_log(ASD_LogLevel_Error, stream, option,
+                        "Unknown GPIO direction in %s: %s", TARGET_CONTROL_GPIO_STRINGS[i], property->valuestring);
+#endif
+                goto end;
+            }
+        }
+
+        property = cJSON_GetObjectItemCaseSensitive(gpio, "PinEdge");
+        if (cJSON_IsString(property) && (property->valuestring != NULL))
+        {
+            bool found = false;
+            for (int j = 0; j < sizeof(GPIO_EDGE_STRINGS) / sizeof(GPIO_EDGE_STRINGS[0]); j++)
+            {
+                if (strcmp(GPIO_EDGE_STRINGS[j], property->valuestring) == 0) {
+                    state->gpios[i].edge = j;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+#ifdef ENABLE_DEBUG_LOGGING
+                ASD_log(ASD_LogLevel_Error, stream, option,
+                        "Unknown GPIO edge in %s: %s", TARGET_CONTROL_GPIO_STRINGS[i], property->valuestring);
+#endif
+                goto end;
+            }
+        }
+
+        property = cJSON_GetObjectItemCaseSensitive(gpio, "PinActiveLow");
+        if (cJSON_IsBool(property))
+        {
+            state->gpios[i].active_low = cJSON_IsTrue(property);
+        }
+
+        property = cJSON_GetObjectItemCaseSensitive(gpio, "PinType");
+        if (cJSON_IsString(property) && (property->valuestring != NULL))
+        {
+            bool found = false;
+            for (int j = 0; j < sizeof(PIN_TYPE_STRINGS) / sizeof(PIN_TYPE_STRINGS[0]); j++)
+            {
+                if (strcmp(PIN_TYPE_STRINGS[j], property->valuestring) == 0) {
+                    state->gpios[i].type = j;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+#ifdef ENABLE_DEBUG_LOGGING
+                ASD_log(ASD_LogLevel_Error, stream, option,
+                        "Unknown GPIO type in %s: %s", TARGET_CONTROL_GPIO_STRINGS[i], property->valuestring);
+#endif
+                goto end;
+            }
+        }
+    }
+
+end:
+    cJSON_Delete(config_json);
+    return result;
+}
+#endif
 
 STATUS target_initialize(Target_Control_Handle* state, bool xdp_fail_enable)
 {
@@ -629,10 +757,12 @@ STATUS target_initialize(Target_Control_Handle* state, bool xdp_fail_enable)
         }
     }
 
+#ifdef ENABLE_DBUS
     if (result == ST_OK)
     {
         result = dbus_initialize(state->dbus);
     }
+#endif
 
     if (result == ST_OK)
         state->initialized = true;
@@ -1158,7 +1288,7 @@ STATUS target_event(Target_Control_Handle* state, struct pollfd poll_fd,
             result = ST_OK;
         }
     }
-    else if (state->dbus && state->dbus->fd == poll_fd.fd &&
+    else if (state->dbus && dbus_get_fd(state->dbus) == poll_fd.fd &&
         (poll_fd.revents & POLLIN) == POLLIN)
     {
 #ifdef ENABLE_DEBUG_LOGGING
@@ -1720,9 +1850,9 @@ STATUS target_get_fds(Target_Control_Handle* state, target_fdarr_t* fds,
         index++;
     }
 
-    if (state->dbus && state->dbus->fd != -1)
+    if (state->dbus && dbus_get_fd(state->dbus) != -1)
     {
-        (*fds)[index].fd = state->dbus->fd;
+        (*fds)[index].fd = dbus_get_fd(state->dbus);
         (*fds)[index].events = POLLIN;
         index++;
     }
@@ -1820,6 +1950,7 @@ STATUS target_get_i2c_i3c_config(bus_options* busopt)
     if (busopt == NULL)
         return ST_ERR;
 
+#ifdef ENABLE_DBUS
     Dbus_Handle* dbus = dbus_helper();
     if (dbus)
     {
@@ -1851,6 +1982,7 @@ STATUS target_get_i2c_i3c_config(bus_options* busopt)
         ASD_log(ASD_LogLevel_Error, stream, option,
                 "failed to get dbus handle");
     }
+#endif
 
 #ifdef PLATFORM_IxC_LOCAL_CONFIG
     ASD_log(ASD_LogLevel_Info, stream, option,

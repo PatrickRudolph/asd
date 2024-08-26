@@ -39,7 +39,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string.h>
 #include <sys/eventfd.h>
 #include <sys/socket.h>
+#ifdef ENABLE_SD_JOURNAL
 #include <systemd/sd-journal.h>
+#endif
 #include <unistd.h>
 
 #include "asd_target_interface.h"
@@ -149,6 +151,7 @@ bool process_command_line(int argc, char** argv, asd_args* args)
     args->session.e_extnet_type = EXTNET_HDLR_TLS;
     args->session.e_auth_type = AUTH_HDLR_PAM;
     args->xdp_fail_enable = DEFAULT_XDP_FAIL_ENABLE;
+    args->json_config = NULL;
     main_state.config.jtag.xdp_fail_enable = DEFAULT_XDP_FAIL_ENABLE;
 
     enum
@@ -167,7 +170,7 @@ bool process_command_line(int argc, char** argv, asd_args* args)
         {NULL, 0, NULL, 0},
     };
 
-    while ((c = getopt_long(argc, argv, "p:uk:n:si:c:d:", opts, NULL)) != -1)
+    while ((c = getopt_long(argc, argv, "p:uk:n:si:c:d:j:", opts, NULL)) != -1)
     {
         switch (c)
         {
@@ -185,6 +188,24 @@ bool process_command_line(int argc, char** argv, asd_args* args)
                 {
                     fprintf(stderr,
                             "Invalid character in port: %c.\n",
+                            ch);
+                    showUsage(argv);
+                    return false;
+                }
+                break;
+            }
+            case 'j':
+            {
+                char ch=0;
+                if(validateCharInputs(optarg, &ch, true, true, true, true,
+                                       false, false))
+                {
+                    args->json_config = optarg;
+                }
+                else
+                {
+                    fprintf(stderr,
+                            "Invalid character in certificate filename: %c.\n",
                             ch);
                     showUsage(argv);
                     return false;
@@ -465,6 +486,7 @@ void showUsage(char** argv)
         "              The first bus will be used as default bus.\n"
         "              The total number of i3c bus assignments cannot exceed\n"
         "              8 buses.\n"
+        "  -j <json>   Config file in JSON format\n"
         "  --xdp-ignore               Connect ASD even with XDP connected\n"
         "                             Warning: Driving signals from both\n"
         "                             ASD and XDP may cause electrical issues\n"
@@ -1047,6 +1069,7 @@ STATUS on_client_connect(asd_state* state, extnet_conn_t* p_extcon)
         }
     }
 
+    state->config.json_config = state->args.json_config;
     if (result == ST_OK)
     {
         result = asd_api_target_init(&state->config);
@@ -1096,23 +1119,26 @@ void log_client_address(const extnet_conn_t* p_extcon)
         ASD_log(ASD_LogLevel_Info, ASD_LogStream_Daemon, ASD_LogOption_None,
                 "ASD is now connected %s", client_addr);
 #endif
+#ifdef ENABLE_SD_JOURNAL
         // Log ASD connection event into the systems logs
         retcode = sd_journal_send(
             "MESSAGE=At-Scale-Debug is now connected", "PRIORITY=%i", LOG_INFO,
             "REDFISH_MESSAGE_ID=%s", "OpenBMC.0.1.AtScaleDebugConnected",
             "REDFISH_MESSAGE_ARGS=%s", client_addr, NULL);
+
         if (retcode < 0)
         {
             ASD_log(ASD_LogLevel_Error, ASD_LogStream_Daemon,
                     ASD_LogOption_None, "sd_journal_send failed %d", retcode);
         }
+#endif
     }
 }
 
 STATUS on_client_disconnect(asd_state* state)
 {
     STATUS result = ST_OK;
-    int retcode;
+    int retcode = 0;
 
     if (!state)
     {
@@ -1150,6 +1176,7 @@ STATUS on_client_disconnect(asd_state* state)
         ASD_log(ASD_LogLevel_Info, ASD_LogStream_Daemon, ASD_LogOption_None,
                 "ASD is now disconnected");
 #endif
+#ifdef ENABLE_SD_JOURNAL
         // Log ASD connection event into the systems logs
         retcode =
             sd_journal_send("MESSAGE=At-Scale-Debug is now disconnected",
@@ -1161,6 +1188,7 @@ STATUS on_client_disconnect(asd_state* state)
             ASD_log(ASD_LogLevel_Error, ASD_LogStream_Daemon,
                     ASD_LogOption_None, "sd_journal_send failed %d", retcode);
         }
+#endif
     }
     return result;
 }
@@ -1173,6 +1201,7 @@ void on_connection_aborted(void)
     ASD_log(ASD_LogLevel_Error, ASD_LogStream_Daemon, ASD_LogOption_None,
             "ASD connection aborted");
 #endif
+#ifdef ENABLE_SD_JOURNAL
     retcode = sd_journal_send("MESSAGE=At-Scale-Debug connection failed",
                               "PRIORITY=%i", LOG_INFO, "REDFISH_MESSAGE_ID=%s",
                               "OpenBMC.0.1.AtScaleDebugConnectionFailed", NULL);
@@ -1182,4 +1211,5 @@ void on_connection_aborted(void)
         ASD_log(ASD_LogLevel_Error, ASD_LogStream_Daemon, ASD_LogOption_None,
                 "sd_journal_send failed %d", retcode);
     }
+#endif
 }

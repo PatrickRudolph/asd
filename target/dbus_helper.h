@@ -29,59 +29,18 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define __ASD_DBUS_HELPER_H_
 
 #include <stdbool.h>
-#include <systemd/sd-bus.h>
-
 #include "asd_common.h"
 
-#define POWER_SERVICE_HOST "xyz.openbmc_project.State.Host"
-#define POWER_INTERFACE_NAME_HOST "xyz.openbmc_project.State.Host"
-#define POWER_OBJECT_PATH_HOST "/xyz/openbmc_project/state/host0"
-#define HOST_TRANSITION_PROPERTY "RequestedHostTransition"
-#define RESET_ARGUMENT_HOST                                                    \
-    "xyz.openbmc_project.State.Host.Transition.ForceWarmReboot"
-#define POWER_SERVICE_CHASSIS "xyz.openbmc_project.State.Chassis"
-#define POWER_INTERFACE_NAME_CHASSIS "xyz.openbmc_project.State.Chassis"
-#define POWER_OBJECT_PATH_CHASSIS "/xyz/openbmc_project/state/chassis0"
-#define GET_POWER_STATE_PROPERTY_CHASSIS "CurrentPowerState"
-#define SET_POWER_STATE_METHOD_CHASSIS "RequestedPowerTransition"
-#define POWER_OFF_PROPERTY_CHASSIS                                             \
-    "xyz.openbmc_project.State.Chassis.PowerState.Off"
-#define POWER_ON_PROPERTY_CHASSIS                                              \
-    "xyz.openbmc_project.State.Chassis.PowerState.On"
-#define POWER_OFF_ARGUMENT_CHASSIS                                             \
-    "xyz.openbmc_project.State.Chassis.Transition.Off"
-#define POWER_ON_ARGUMENT_CHASSIS                                              \
-    "xyz.openbmc_project.State.Chassis.Transition.On"
-#define POWER_REBOOT_ARGUMENT_CHASSIS                                          \
-    "xyz.openbmc_project.State.Chassis.Transition.Reboot"
-#define POWER_RESET_ARGUMENT_CHASSIS                                           \
-    "xyz.openbmc_project.State.Chassis.Transition.Reset"
+typedef struct sd_bus sd_bus;
+typedef struct Dbus_Handle Dbus_Handle;
+typedef struct sd_bus_error sd_bus_error;
+typedef struct sd_bus_message sd_bus_message;
 
-#define DBUS_PROPERTIES "org.freedesktop.DBus.Properties"
-#define DBUS_SET_METHOD "Set"
-#define MATCH_STRING_CHASSIS                                                   \
-    "type='signal',path='/xyz/openbmc_project/state/chassis0',\
-member='PropertiesChanged',interface='org.freedesktop.DBus.Properties',\
-sender='xyz.openbmc_project.State.Chassis',\
-arg0namespace='xyz.openbmc_project.State.Chassis'"
-
-#define OBJECT_MAPPER_SERVICE "xyz.openbmc_project.ObjectMapper"
-#define OBJECT_MAPPER_PATH "/xyz/openbmc_project/object_mapper"
-#define OBJECT_MAPPER_INTERFACE "xyz.openbmc_project.ObjectMapper"
-#define BASEBOARD_PATH "/xyz/openbmc_project/inventory/system/board"
-#define MOTHERBOARD_IDENTIFIER                                                 \
-    "xyz.openbmc_project.Inventory.Item.Board.Motherboard"
-
-#define ENTITY_MANAGER_SERVICE "xyz.openbmc_project.EntityManager"
-#define ENTITY_MANAGER_PROPERTIES_INTERFACE "org.freedesktop.DBus.Properties"
-#define ASD_CONFIG_PATH "xyz.openbmc_project.Configuration.ASD"
-
-#define CLTT_SERVICE "xyz.openbmc_project.CLTT"
-#define CLTT_PATH "/xyz/openbmc_project/AllSpdBuses"
-#define CLTT_INTERFACE "xyz.openbmc_project.BusControl"
-
-#define SD_BUS_ASYNC_TIMEOUT 10000
-#define MAX_PLATFORM_PATH_SIZE 120
+typedef enum
+{
+    CPU_OWNER,
+    BMC_OWNER
+} I3c_Ownership;
 
 typedef enum
 {
@@ -90,18 +49,7 @@ typedef enum
     STATE_ON = 1
 } Power_State;
 
-typedef struct Dbus_Handle
-{
-    sd_bus* bus;
-    int fd;
-    Power_State power_state;
-} Dbus_Handle;
-
-typedef enum
-{
-    CPU_OWNER,
-    BMC_OWNER
-} I3c_Ownership;
+#define MAX_PLATFORM_PATH_SIZE 120
 
 Dbus_Handle* dbus_helper();
 STATUS dbus_initialize(Dbus_Handle*);
@@ -111,6 +59,7 @@ STATUS dbus_power_toggle(Dbus_Handle*);
 STATUS dbus_power_reboot(Dbus_Handle*);
 STATUS dbus_power_on(Dbus_Handle*);
 STATUS dbus_power_off(Dbus_Handle*);
+int dbus_get_fd(Dbus_Handle*);
 int sdbus_callback(sd_bus_message* reply, void* userdata, sd_bus_error* error);
 STATUS dbus_process_event(Dbus_Handle* state, ASD_EVENT* event);
 STATUS dbus_get_powerstate(Dbus_Handle* state, int* value);

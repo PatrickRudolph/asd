@@ -187,7 +187,7 @@ STATUS asd_msg_init(config* asd_cfg)
     else
     {
         msg_state.jtag_handler = JTAGHandler();
-        msg_state.target_handler = TargetHandler();
+        msg_state.target_handler = TargetHandler(asd_cfg->json_config);
         msg_state.buscfg = &asd_cfg->buscfg;
         msg_state.i2c_handler = I2CHandler(msg_state.buscfg);
         msg_state.i3c_handler = I3CHandler(msg_state.buscfg);

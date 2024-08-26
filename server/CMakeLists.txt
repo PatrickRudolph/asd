@@ -11,13 +11,21 @@ include_directories (${ASD_DIR}/include)
 link_directories (${SAFEC_LIBRARY_DIRS})
 link_directories (${ASD_DIR}/target)
 
+pkg_check_modules(SDBUS QUIET libsystemd)
+if(${SDBUS_FOUND})
+# Use results of pkg_check_modules() call.
+include_directories(${SDBUS_INCLUDE_DIRS})
+link_directories(${SDBUS_LIBRARY_DIRS})
+add_definitions(-DENABLE_DBUS)
+endif(${SDBUS_FOUND})
+
 if(NOT ${BUILD_UT})
     add_executable(asd asd_main.c ext_network.c authenticate.c
             session.c config.c ext_tcp.c auth_none.c ext_tls.c
             auth_pam.c asd_target_interface.c asd_server_api.c
             logging.c)
-    target_link_libraries(asd -lsystemd -lssl -lcrypto -lpam
-                          asd_target ${SAFEC_LIBRARIES})
+    target_link_libraries(asd ${JOURNALD_LIBRARIES} -lssl -lcrypto -lpam
+                          asd_target ${SAFEC_LIBRARIES} ${SDBUS_LIBRARIES})
     install (TARGETS asd DESTINATION bin)
 
     # Copy pam-asd to etc/pam.d

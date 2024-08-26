@@ -182,7 +182,7 @@ typedef struct data_json_map
     int arr_size;
 } data_json_map;
 
-Target_Control_Handle* TargetHandler();
+Target_Control_Handle* TargetHandler(const char *json_config_file);
 STATUS target_initialize(Target_Control_Handle* state, bool xdp_fail_enable);
 STATUS target_deinitialize(Target_Control_Handle* state);
 STATUS target_write(Target_Control_Handle* state, Pin pin, bool assert);

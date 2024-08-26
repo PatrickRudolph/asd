@@ -24,6 +24,7 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+#include <systemd/sd-bus.h>
 
 #include "dbus_helper.h"
 
@@ -33,6 +34,63 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdlib.h>
 
 #include "logging.h"
+
+
+#define POWER_SERVICE_HOST "xyz.openbmc_project.State.Host"
+#define POWER_INTERFACE_NAME_HOST "xyz.openbmc_project.State.Host"
+#define POWER_OBJECT_PATH_HOST "/xyz/openbmc_project/state/host0"
+#define HOST_TRANSITION_PROPERTY "RequestedHostTransition"
+#define RESET_ARGUMENT_HOST                                                    \
+    "xyz.openbmc_project.State.Host.Transition.ForceWarmReboot"
+#define POWER_SERVICE_CHASSIS "xyz.openbmc_project.State.Chassis"
+#define POWER_INTERFACE_NAME_CHASSIS "xyz.openbmc_project.State.Chassis"
+#define POWER_OBJECT_PATH_CHASSIS "/xyz/openbmc_project/state/chassis0"
+#define GET_POWER_STATE_PROPERTY_CHASSIS "CurrentPowerState"
+#define SET_POWER_STATE_METHOD_CHASSIS "RequestedPowerTransition"
+#define POWER_OFF_PROPERTY_CHASSIS                                             \
+    "xyz.openbmc_project.State.Chassis.PowerState.Off"
+#define POWER_ON_PROPERTY_CHASSIS                                              \
+    "xyz.openbmc_project.State.Chassis.PowerState.On"
+#define POWER_OFF_ARGUMENT_CHASSIS                                             \
+    "xyz.openbmc_project.State.Chassis.Transition.Off"
+#define POWER_ON_ARGUMENT_CHASSIS                                              \
+    "xyz.openbmc_project.State.Chassis.Transition.On"
+#define POWER_REBOOT_ARGUMENT_CHASSIS                                          \
+    "xyz.openbmc_project.State.Chassis.Transition.Reboot"
+#define POWER_RESET_ARGUMENT_CHASSIS                                           \
+    "xyz.openbmc_project.State.Chassis.Transition.Reset"
+
+#define DBUS_PROPERTIES "org.freedesktop.DBus.Properties"
+#define DBUS_SET_METHOD "Set"
+#define MATCH_STRING_CHASSIS                                                   \
+    "type='signal',path='/xyz/openbmc_project/state/chassis0',\
+member='PropertiesChanged',interface='org.freedesktop.DBus.Properties',\
+sender='xyz.openbmc_project.State.Chassis',\
+arg0namespace='xyz.openbmc_project.State.Chassis'"
+
+#define OBJECT_MAPPER_SERVICE "xyz.openbmc_project.ObjectMapper"
+#define OBJECT_MAPPER_PATH "/xyz/openbmc_project/object_mapper"
+#define OBJECT_MAPPER_INTERFACE "xyz.openbmc_project.ObjectMapper"
+#define BASEBOARD_PATH "/xyz/openbmc_project/inventory/system/board"
+#define MOTHERBOARD_IDENTIFIER                                                 \
+    "xyz.openbmc_project.Inventory.Item.Board.Motherboard"
+
+#define ENTITY_MANAGER_SERVICE "xyz.openbmc_project.EntityManager"
+#define ENTITY_MANAGER_PROPERTIES_INTERFACE "org.freedesktop.DBus.Properties"
+#define ASD_CONFIG_PATH "xyz.openbmc_project.Configuration.ASD"
+
+#define CLTT_SERVICE "xyz.openbmc_project.CLTT"
+#define CLTT_PATH "/xyz/openbmc_project/AllSpdBuses"
+#define CLTT_INTERFACE "xyz.openbmc_project.BusControl"
+
+#define SD_BUS_ASYNC_TIMEOUT 10000
+
+typedef struct Dbus_Handle
+{
+    sd_bus* bus;
+    int fd;
+    Power_State power_state;
+} Dbus_Handle;
 
 static const ASD_LogStream stream = ASD_LogStream_Pins;
 static const ASD_LogOption option = ASD_LogOption_None;
@@ -54,6 +112,11 @@ Dbus_Handle* dbus_helper()
         state->power_state = STATE_UNKNOWN;
     }
     return state;
+}
+
+int dbus_get_fd(Dbus_Handle* state)
+{
+    return state->fd;
 }
 
 STATUS dbus_initialize(Dbus_Handle* state)

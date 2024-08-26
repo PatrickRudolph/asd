@@ -114,8 +114,7 @@ STATUS i3c_initialize(I3C_Handler* state)
         status = dbus_initialize(state->dbus);
         if (status == ST_OK)
         {
-            state->dbus->fd = sd_bus_get_fd(state->dbus->bus);
-            if (state->dbus->fd < 0)
+            if (dbus_get_fd(state->dbus) < 0)
             {
                 ASD_log(ASD_LogLevel_Error, stream, option,
                         "sd_bus_get_fd failed");
@@ -127,6 +126,7 @@ STATUS i3c_initialize(I3C_Handler* state)
             ASD_log(ASD_LogLevel_Error, stream, option,
                     "Failed to init i3c dbus handler");
         }
+
         state->i3c_bus = I3C_BUS_ADDRESS_RESERVED;
     }
     return status;
@@ -165,6 +165,7 @@ STATUS i3c_deinitialize(I3C_Handler* state)
         free(state->dbus);
         state->dbus = NULL;
     }
+
     state = NULL;
     return status;
 }

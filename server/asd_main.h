@@ -68,6 +68,7 @@ typedef struct asd_args
     ASD_LogLevel log_level;
     ASD_LogStream log_streams;
     bool xdp_fail_enable;
+    const char *json_config;
 } asd_args;
 
 typedef struct asd_state

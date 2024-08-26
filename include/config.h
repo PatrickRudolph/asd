@@ -60,6 +60,7 @@ typedef struct config
     remote_logging_config remote_logging;
     IPC_LogType ipc_asd_log_map[6];
     bus_config buscfg;
+    const char *json_config;
 } config;
 
 STATUS set_config_defaults(config* config, const bus_options* opt);
