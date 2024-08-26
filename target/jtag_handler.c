@@ -234,6 +234,7 @@ STATUS JTAG_tap_reset(JTAG_Handler* state)
 //
 STATUS JTAG_set_tap_state(JTAG_Handler* state, enum jtag_states tap_state)
 {
+    int ret = 0;
     if (state == NULL)
         return ST_ERR;
 #ifdef JTAG_LEGACY_DRIVER
@@ -251,14 +252,25 @@ STATUS JTAG_set_tap_state(JTAG_Handler* state, enum jtag_states tap_state)
 #endif
 
 #ifdef JTAG_LEGACY_DRIVER
-    if (ioctl(state->JTAG_driver_handle, AST_JTAG_SET_TAPSTATE, &params)
+    ret = ioctl(state->JTAG_driver_handle, AST_JTAG_SET_TAPSTATE, &params);
 #else
-    if (ioctl(state->JTAG_driver_handle, JTAG_SIOCSTATE, &tap_state_t)
+    ret = ioctl(state->JTAG_driver_handle, JTAG_SIOCSTATE, &tap_state_t);
 #endif
-        < 0)
+    if (ret < 0)
     {
+#ifdef JTAG_LEGACY_DRIVER
         ASD_log(ASD_LogLevel_Error, stream, option,
-                "ioctl AST_JTAG_SET_TAPSTATE failed");
+                "ioctl AST_JTAG_SET_TAPSTATE failed: %d", ret);
+#else
+        ASD_log(ASD_LogLevel_Error, stream, option,
+                "ioctl JTAG_SIOCSTATE failed: %d", ret);
+        ASD_log(ASD_LogLevel_Error, stream, option,
+                "tap_state_t.from: %d", state->active_chain->tap_state);
+        ASD_log(ASD_LogLevel_Error, stream, option,
+                "tap_state_t.endstate: %d", tap_state);
+        ASD_log(ASD_LogLevel_Error, stream, option,
+                "tap_state_t.reset: %d", tap_state_t.reset);
+#endif
         return ST_ERR;
     }
 

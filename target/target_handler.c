@@ -396,15 +396,27 @@ Target_Control_Handle* TargetHandler(const char *json_config_file)
     state->gpios[BMC_PWRGD3].handler = on_power3_event;
 
     if (json_config_file != NULL) {
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Debug, stream, option,
+                    "Using JSON config %s", json_config_file);
+#endif
         f = fopen(json_config_file, "rb");
-        fseek(f, 0, SEEK_END);
-        long fsize = ftell(f);
-        fseek(f, 0, SEEK_SET);
+        if (f == NULL) {
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Error, stream, option,
+                    "Cannot open file %s: %d", json_config_file, errno);
+#endif
+            return NULL;
+        } else {
+            fseek(f, 0, SEEK_END);
+            long fsize = ftell(f);
+            fseek(f, 0, SEEK_SET);
 
-        json_config = malloc(fsize + 1);
-        if (json_config != NULL)
-            fread(json_config, fsize, 1, f);
-        fclose(f);
+            json_config = malloc(fsize + 1);
+            if (json_config != NULL)
+                fread(json_config, fsize, 1, f);
+            fclose(f);
+        }
     }
 
     platform_init(state, json_config);
@@ -609,6 +621,11 @@ STATUS platform_init(Target_Control_Handle* state, const char *json)
     const cJSON *gpio = NULL;
     const cJSON *property = NULL;
 
+    if (json == NULL)
+    {
+        return ST_OK;
+    }
+
     cJSON *config_json = cJSON_Parse(json);
     if (config_json == NULL)
     {
@@ -622,24 +639,44 @@ STATUS platform_init(Target_Control_Handle* state, const char *json)
         }
         goto end;
     }
-    gpios = cJSON_GetObjectItemCaseSensitive(config_json, "gpio_config");
 
+    gpios = cJSON_GetObjectItemCaseSensitive(config_json, "gpio_config");
+    if (!cJSON_IsObject(gpios)) {
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Warning, stream, option,
+                    "JSON missing dict 'gpio_config': Using default GPIO config");
+#endif
+        goto end;
+    }
     for (int i = 0; i < NUM_GPIOS; i++)
     {
         gpio = cJSON_GetObjectItemCaseSensitive(gpios, TARGET_CONTROL_GPIO_STRINGS[i]);
-        if (gpio == NULL)
+        if (gpio == NULL) {
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Warning, stream, option,
+                    "JSON missing dict '%s': Using default GPIO config", TARGET_CONTROL_GPIO_STRINGS[i]);
+#endif
             continue;
-
+        }
         property = cJSON_GetObjectItemCaseSensitive(gpio, "PinName");
         if (cJSON_IsString(property) && (property->valuestring != NULL) && (strlen(property->valuestring) + 1) <= sizeof(state->gpios[i].name))
         {
             strncpy(&state->gpios[i].name, property->valuestring, sizeof(state->gpios[i].name));
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Debug, stream, option,
+                    "JSON config for pin %s: Name = %s", TARGET_CONTROL_GPIO_STRINGS[i], property->valuestring);
+#endif
         }
 
         property = cJSON_GetObjectItemCaseSensitive(gpio, "PinDirection");
         if (cJSON_IsString(property) && (property->valuestring != NULL))
         {
             bool found = false;
+
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Debug, stream, option,
+                    "JSON config for pin %s: PinDirection = %s", TARGET_CONTROL_GPIO_STRINGS[i], property->valuestring);
+#endif
             for (int j = 0; j < sizeof(GPIO_DIRECTION_STRINGS) / sizeof(GPIO_DIRECTION_STRINGS[0]); j++)
             {
                 if (strcmp(GPIO_DIRECTION_STRINGS[j], property->valuestring) == 0) {
@@ -660,6 +697,10 @@ STATUS platform_init(Target_Control_Handle* state, const char *json)
         property = cJSON_GetObjectItemCaseSensitive(gpio, "PinEdge");
         if (cJSON_IsString(property) && (property->valuestring != NULL))
         {
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Debug, stream, option,
+                    "JSON config for pin %s: PinEdge = %s", TARGET_CONTROL_GPIO_STRINGS[i], property->valuestring);
+#endif
             bool found = false;
             for (int j = 0; j < sizeof(GPIO_EDGE_STRINGS) / sizeof(GPIO_EDGE_STRINGS[0]); j++)
             {
@@ -682,11 +723,19 @@ STATUS platform_init(Target_Control_Handle* state, const char *json)
         if (cJSON_IsBool(property))
         {
             state->gpios[i].active_low = cJSON_IsTrue(property);
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Debug, stream, option,
+                    "JSON config for pin %s: PinActiveLow = %d", TARGET_CONTROL_GPIO_STRINGS[i], cJSON_IsTrue(property));
+#endif
         }
 
         property = cJSON_GetObjectItemCaseSensitive(gpio, "PinType");
         if (cJSON_IsString(property) && (property->valuestring != NULL))
         {
+#ifdef ENABLE_DEBUG_LOGGING
+            ASD_log(ASD_LogLevel_Debug, stream, option,
+                    "JSON config for pin %s: PinType = %d", TARGET_CONTROL_GPIO_STRINGS[i], property->valuestring);
+#endif
             bool found = false;
             for (int j = 0; j < sizeof(PIN_TYPE_STRINGS) / sizeof(PIN_TYPE_STRINGS[0]); j++)
             {
@@ -743,6 +792,11 @@ STATUS target_initialize(Target_Control_Handle* state, bool xdp_fail_enable)
             ASD_log(ASD_LogLevel_Error, stream, option,
                     "XDP presence detected");
         }
+    }
+    else
+    {
+        ASD_log(ASD_LogLevel_Error, stream, option,
+                "initialize_gpios failed");
     }
 
     // specifically drive debug enable to assert
@@ -1789,8 +1843,13 @@ STATUS target_get_fds(Target_Control_Handle* state, target_fdarr_t* fds,
     if (state == NULL || !state->initialized || fds == NULL || num_fds == NULL)
     {
 #ifdef ENABLE_DEBUG_LOGGING
-        ASD_log(ASD_LogLevel_Error, stream, option,
-                "target_get_fds, null or uninitialized state");
+        static bool once = false;
+        if (!once) {
+            once = true;
+            ASD_log(ASD_LogLevel_Error, stream, option,
+                    "target_get_fds: null or uninitialized state");
+        }
+
 #endif
         return ST_ERR;
     }
