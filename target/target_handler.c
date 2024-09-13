@@ -772,25 +772,26 @@ STATUS target_initialize(Target_Control_Handle* state, bool xdp_fail_enable)
 
     if (result == ST_OK)
     {
-
         Target_Control_GPIO xdp_gpio = state->gpios[BMC_XDP_PRST_IN];
-        result = xdp_gpio.read(state, BMC_XDP_PRST_IN, &value);
-        if (result != ST_OK)
-        {
-            ASD_log(ASD_LogLevel_Error, stream, option,
-                    "Failed check XDP state or XDP not available");
-        }
-        else if (value == 1)
-        {
-            state->xdp_present = true;
-            if (xdp_fail_enable)
+        if (xdp_gpio.type != PIN_NONE) {
+            result = xdp_gpio.read(state, BMC_XDP_PRST_IN, &value);
+            if (result != ST_OK)
             {
                 ASD_log(ASD_LogLevel_Error, stream, option,
-                        "Exiting due XDP presence detected");
-                result = ST_ERR;
+                        "Failed check XDP state or XDP not available");
             }
-            ASD_log(ASD_LogLevel_Error, stream, option,
-                    "XDP presence detected");
+            else if (value == 1)
+            {
+                state->xdp_present = true;
+                if (xdp_fail_enable)
+                {
+                    ASD_log(ASD_LogLevel_Error, stream, option,
+                            "Exiting due XDP presence detected");
+                    result = ST_ERR;
+                }
+                ASD_log(ASD_LogLevel_Error, stream, option,
+                        "XDP presence detected");
+            }
         }
     }
     else
