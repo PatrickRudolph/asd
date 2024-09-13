@@ -140,7 +140,7 @@ struct jtag_tap_state {
 	__u8	reset;
 	__u8	from;
 	__u8	endstate;
-	__u32	tck;
+	__u8	tck;
 };
 
 /**
