@@ -796,7 +796,7 @@ STATUS target_initialize(Target_Control_Handle* state, bool xdp_fail_enable)
     else
     {
         ASD_log(ASD_LogLevel_Error, stream, option,
-                "initialize_gpios failed");
+                "initialize_gpios failed: %d", result);
     }
 
     // specifically drive debug enable to assert
@@ -961,11 +961,27 @@ STATUS initialize_gpiod(Target_Control_GPIO* gpio)
         CHIP_BUFFER_SIZE - GPIOD_DEV_ROOT_FOLDER_STRLEN, &offset);
     if (rv < 0)
     {
-#ifdef ENABLE_DEBUG_LOGGING
-        ASD_log(ASD_LogLevel_Error, stream, option,
-                "error performing the line lookup");
-#endif
-        return ST_ERR;
+        /* Fallback. gpiod_ctxless_find_line seems broken */
+        strcpy(chip_name, "/dev/gpiochip0");
+        gpio->chip = gpiod_chip_open(chip_name);
+
+        for (int i = 1; gpio->chip != NULL; i++) {
+            gpio->line =  gpiod_chip_find_line(gpio->chip, gpio->name);
+            gpiod_chip_close(gpio->chip);
+            if (gpio->line) {
+                ASD_log(ASD_LogLevel_Debug, stream, option, "Found GPIO %s using on %s",
+                        gpio->name, chip_name);
+                offset = gpiod_line_offset (gpio->line);
+                break;
+            }
+            snprintf(chip_name, sizeof(chip_name), "/dev/gpiochip%d", i);
+            gpio->chip = gpiod_chip_open(chip_name);
+        }
+        if (gpio->line == NULL) {
+            ASD_log(ASD_LogLevel_Error, stream, option,
+                    "error performing the line lookup for %s", gpio->name);
+            return ST_ERR;
+        }
     }
     else if (rv == 0)
     {
@@ -985,19 +1001,15 @@ STATUS initialize_gpiod(Target_Control_GPIO* gpio)
     gpio->chip = gpiod_chip_open(chip_name);
     if (!gpio->chip)
     {
-#ifdef ENABLE_DEBUG_LOGGING
-        ASD_log(ASD_LogLevel_Error, stream, option, "Failed to open the chip");
-#endif
+        ASD_log(ASD_LogLevel_Error, stream, option, "Failed to open the chip %s", chip_name);
         return ST_ERR;
     }
 
     gpio->line = gpiod_chip_get_line(gpio->chip, offset);
     if (!gpio->line)
     {
-#ifdef ENABLE_DEBUG_LOGGING
         ASD_log(ASD_LogLevel_Error, stream, option,
-                "Failed to get line reference");
-#endif
+                "Failed to get line %d reference", offset);
         gpiod_chip_close(gpio->chip);
         return ST_ERR;
     }
@@ -1052,10 +1064,8 @@ STATUS initialize_gpiod(Target_Control_GPIO* gpio)
     rv = gpiod_line_request(gpio->line, &config, default_val);
     if (rv)
     {
-#ifdef ENABLE_DEBUG_LOGGING
         ASD_log(ASD_LogLevel_Error, stream, option,
-                "Failed to process line request");
-#endif
+                "Failed to take line %s ownership: %d", gpio->name, rv);
         gpiod_chip_close(gpio->chip);
         return ST_ERR;
     }
